@@ -1,0 +1,4 @@
+        Stream<String> lines = Files.lines(Paths.get(""));
+        Pattern pattern = Pattern.compile("\\((\\d+),");
+        String collect = lines.map(pattern::matcher).filter(Matcher::find).map(i -> i.group(1)).collect(Collectors.joining(","));
+        System.out.println(collect);
