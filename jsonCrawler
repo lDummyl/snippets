@@ -1,0 +1,63 @@
+package com.severmed.svc.decision.service;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Charsets;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public class Crawler {
+
+
+    public void crawl(String pathString) throws IOException {
+
+        Path path = Paths.get(pathString);
+        List<Integer> collect;
+        try (Stream<Path> walk = Files.walk(path)) {
+            collect = walk.filter(i -> i.toString().endsWith("-response.adoc"))
+                    .map(this::getBody)
+                    .map(this::getIds)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+        }
+        System.out.println("collect = " + collect);
+
+    }
+
+    private String getBody(Path p) {
+        try {
+            File file = p.toFile();
+            String s = com.google.common.io.Files.toString(file, Charsets.UTF_8);
+            String[] split = s.split("\n\r\n");
+            return split[1];
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return "";
+    }
+
+    private List<Integer> getIds(String s) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonFactory factory = mapper.getFactory();
+            JsonParser parser = factory.createParser(s);
+            JsonNode actualObj = mapper.readTree(parser);
+            List<JsonNode> doctor = actualObj.findValues("doctor");
+            return doctor.stream().map(i -> i.findValue("id")).map(JsonNode::asInt).collect(Collectors.toList());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return Collections.emptyList();
+    }
+}
