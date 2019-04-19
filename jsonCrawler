@@ -4,11 +4,14 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.web.util.UriUtils;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Predicate;
@@ -17,13 +20,30 @@ import java.util.stream.Stream;
 
 public class Crawler {
 
+    private static final String TARGET_GENERATED_SNIPPETS = "target\\generated-snippets\\";
     private final String pathString;
+    private final Predicate<Path> defaultPathPredicate = i -> i.toString().endsWith("-response.adoc");
     private final Predicate<Path> pathPredicate;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Path defaultPath = new File(".").toPath().resolve(TARGET_GENERATED_SNIPPETS);
+    private final List<String> requestMethods = new ArrayList<>();
+    private String primarySearchFieldName;
 
-    public Crawler(String pathString, Predicate<Path> pathPredicate) {
+
+    public Crawler(String pathString, Predicate<Path> pathPredicate, String primarySearchFieldName) {
         this.pathString = pathString;
         this.pathPredicate = pathPredicate;
+        this.primarySearchFieldName = primarySearchFieldName;
+    }
+
+    public Crawler() {
+        this.pathPredicate = defaultPathPredicate;
+        this.pathString = defaultPath.toString();
+
+    }
+
+    public void setPrimarySearchFieldName(String primarySearchFieldName) {
+        this.primarySearchFieldName = primarySearchFieldName;
     }
 
     public List<JsonNode> crawl() throws IOException {
@@ -33,21 +53,27 @@ public class Crawler {
         try (Stream<Path> walk = Files.walk(path)) {
             collect = walk.filter(pathPredicate)
                     .map(this::getBody)
-                    .map(this::getNode)
                     .collect(Collectors.toList());
         }
         return collect;
     }
 
-    private String getBody(Path p) {
+    private JsonNode getBody(Path p) {
         try {
             String content = new String(Files.readAllBytes(p));
             String[] split = content.split("\n\r\n");
-            return split[1];
+            JsonNode node = getNode(split[1]);
+            List<JsonNode> doctor = node.findValues(primarySearchFieldName);
+            if (doctor.size() > 0) {
+                Path resolve = p.getParent().resolve("http-request.adoc");
+                List<String> strings = Files.readAllLines(resolve);
+                requestMethods.add(UriUtils.decode(strings.get(2), "UTF-8"));
+            }
+            return node;
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return "";
+        return null;
     }
 
     private JsonNode getNode(String bodyJson) {
@@ -62,12 +88,13 @@ public class Crawler {
     }
 
     public static void main(String[] args) throws IOException {
-        Predicate<Path> pathPredicate = i -> i.toString().endsWith("-response.adoc");
-        String pathString = "C:\\Users\\diu.ludov\\IdeaProjects\\decision\\target\\generated-snippets\\decision";
-        Crawler crawler = new Crawler(pathString, pathPredicate);
+        Crawler crawler = new Crawler();
+        final String searchFieldName = "doctor";
+        crawler.setPrimarySearchFieldName(searchFieldName);
         List<JsonNode> collect = crawler.crawl().stream()
-                .map(i -> i.findValues("doctor")).flatMap(Collection::stream)
+                .map(i -> i.findValues(searchFieldName)).flatMap(Collection::stream)
                 .map(i -> i.findValue("id")).collect(Collectors.toList());
         collect.stream().map(JsonNode::asInt).distinct().forEach(System.out::println);
+        crawler.requestMethods.forEach(System.out::println);
     }
 }
